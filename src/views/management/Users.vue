@@ -74,36 +74,33 @@
 
 
 <script lang="ts" setup>
-import { computed, nextTick, reactive, ref } from 'vue';
+import { computed, nextTick, reactive, ref, onMounted } from 'vue';
 import { Search, Plus, Edit, Delete } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
+import { getUserList, type User as ApiUser } from '../../api/user';
 
-// 定义用户接口ts
-interface User {
-    id: number;
-    username: string;
-    email: string;
-    role: 'admin' | 'user' | 'guest';
+// 扩展API用户类型，添加表单需要的字段
+interface User extends ApiUser {
     password?: string; // 仅用于创建或重置
     newPassword?: string; // 仅用于编辑时修改密码
-    createdAt: string;
+}
+
+// 用户数据（等待接口数据）
+const allUsers = ref<User[]>([]); // 保存所有用户数据，用于搜索和分页
+
+// 方法：获取用户列表
+const fetchUsers = async () => {
+    loading.value = true;
+    try {
+        const users = await getUserList();
+        allUsers.value = users;
+    } catch (error) {
+        console.error('获取用户列表失败:', error);
+        ElMessage.error('获取用户列表失败');
+    } finally {
+        loading.value = false;
+    }
 };
-
-// 模拟用户数据
-const mockUsers: User[] = reactive([
-    { id: 1, username: 'admin_user', email: 'admin@example.com', role: 'admin', createdAt: new Date(2023, 0, 15).toISOString() },
-    { id: 2, username: 'john_doe', email: 'john.doe@example.com', role: 'user', createdAt: new Date(2023, 1, 20).toISOString() },
-    { id: 3, username: 'jane_smith', email: 'jane.smith@example.com', role: 'user', createdAt: new Date(2023, 2, 10).toISOString() },
-    { id: 4, username: 'guest_visitor', email: 'guest@example.com', role: 'guest', createdAt: new Date(2023, 3, 5).toISOString() },
-    { id: 5, username: 'editor_person', email: 'editor@example.com', role: 'user', createdAt: new Date(2023, 4, 1).toISOString() },
-    { id: 6, username: 'test_user_1', email: 'test1@example.com', role: 'user', createdAt: new Date(2024, 0, 1).toISOString() },
-    { id: 7, username: 'test_user_2', email: 'test2@example.com', role: 'admin', createdAt: new Date(2024, 1, 5).toISOString() },
-    { id: 8, username: 'another_guest', email: 'guest2@example.com', role: 'guest', createdAt: new Date(2024, 2, 10).toISOString() },
-    { id: 9, username: 'super_editor', email: 'superedit@example.com', role: 'user', createdAt: new Date(2024, 3, 15).toISOString() },
-    { id: 10, username: 'final_user', email: 'final@example.com', role: 'user', createdAt: new Date(2024, 4, 20).toISOString() },
-])
-
-const allUsers = ref<User[]>([...mockUsers]); //保存所有用户数据，用于搜索和分页
 
 // 校验规则
 const userFormRules = reactive<FormRules>({
@@ -171,9 +168,12 @@ const paginatedUsers = computed(() => {
 
 
 // 方法：关键字查询
-const handleSearch = () => {
+const handleSearch = async () => {
     currentPage.value = 1;
-    // 实际数据获取逻辑通过 computed 属性 filteredUsers 实现
+    // TODO: 如果需要服务端搜索，在这里调用搜索接口
+    // await fetchUsers(searchQuery.value);
+    
+    // 当前使用客户端过滤，通过 computed 属性 filteredUsers 实现
 };
 
 // 方法：添加用户
@@ -220,22 +220,29 @@ const handleEditUser = (user: User) => {
 };
 
 // 方法：删除
-const handleDeleteUser = (userId: number) => {
+const handleDeleteUser = (userId: string) => {
     ElMessageBox.confirm('确定要删除该用户吗？此操作不可撤销。', '警告', {
         confirmButtonText: '确定删除',
         cancelButtonText: '取消',
         type: 'warning',
-    }).then(() => {
-        // 点击确认删除的逻辑
+    }).then(async () => {
+        // TODO: 调用删除用户接口
         loading.value = true;
-        setTimeout(() => {
-            allUsers.value = allUsers.value.filter(user => user.id !== userId); //allUsers数组中过滤掉目标用户
+        try {
+            // const response = await deleteUserApi(userId);
+            // 临时逻辑：直接从本地数组删除
+            allUsers.value = allUsers.value.filter(user => user.id !== userId);
             ElMessage.success('用户删除成功');
-            loading.value = false;
+            
+            // 如果删除后当前页为空，且不是第一页，则跳到上一页
             if (paginatedUsers.value.length === 0 && currentPage.value > 1) {
-                currentPage.value--; // 如果删除后当前页为空，且不是第一页，则跳到上一页
+                currentPage.value--;
             }
-        }, 500);
+        } catch (error) {
+            ElMessage.error('删除用户失败');
+        } finally {
+            loading.value = false;
+        }
     }).catch(() => {
         ElMessage.info('已取消删除');
     });
@@ -244,38 +251,50 @@ const handleDeleteUser = (userId: number) => {
 // 方法：保存用户（添加或编辑）
 const handleSaveUser = async () => {
     if (!userFormRef.value) return;
-    await userFormRef.value.validate((valid) => {
+    
+    await userFormRef.value.validate(async (valid) => {
         if (valid) {
-            loading.value = true; // 模拟 API 请求
-            setTimeout(() => {
-                if (userForm.id) { // 编辑模式
+            loading.value = true;
+            try {
+                if (userForm.id) { 
+                    // TODO: 调用编辑用户接口
+                    // const response = await updateUserApi(userForm.id, userForm);
+                    
+                    // 临时逻辑：更新本地数组
                     const index = allUsers.value.findIndex(u => u.id === userForm.id);
                     if (index !== -1) {
                         const updatedUser = { ...allUsers.value[index], ...userForm };
-                        if (userForm.newPassword) { // 如果输入了新密码
-                            updatedUser.password = userForm.newPassword; // 实际应用中这里是哈希后的密码
+                        if (userForm.newPassword) {
+                            updatedUser.password = userForm.newPassword;
                         }
-                        allUsers.value[index] = { ...updatedUser, newPassword: '' }; // 保存时移除 newPassword
+                        allUsers.value[index] = { ...updatedUser, newPassword: '' };
                         ElMessage.success('用户更新成功');
                     }
-                } else { // 添加模式
+                } else { 
+                    // TODO: 调用创建用户接口
+                    // const response = await createUserApi(userForm);
+                    
+                    // 临时逻辑：添加到本地数组
                     const newUser: User = {
-                        id: Math.max(0, ...allUsers.value.map(u => u.id)) + 1, // 简单生成 ID
+                        id: Date.now().toString(), // 生成临时ID
                         username: userForm.username!,
                         email: userForm.email!,
                         role: userForm.role!,
-                        password: userForm.password!, // 实际应用中这里是哈希后的密码
+                        password: userForm.password!,
                         createdAt: new Date().toISOString(),
                     };
-                    allUsers.value.unshift(newUser); // 添加到列表开头
+                    allUsers.value.unshift(newUser);
                     ElMessage.success('用户添加成功');
                 }
-                loading.value = false;
+                
                 dialogVisible.value = false;
-            }, 500);
+            } catch (error) {
+                ElMessage.error(userForm.id ? '用户更新失败' : '用户添加失败');
+            } finally {
+                loading.value = false;
+            }
         } else {
             ElMessage.error('请检查表单输入项');
-            return;
         }
     });
 };
@@ -303,6 +322,11 @@ const handleCloseDialog = () => {
     dialogVisible.value = false;
     userFormRef.value?.resetFields(); // 重置表单及其校验状态
 }
+
+// 组件挂载时获取用户列表
+onMounted(() => {
+    fetchUsers();
+});
 
 </script>
 
