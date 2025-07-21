@@ -58,14 +58,15 @@
                     <el-select v-model="userForm.role" placeholder="请选择角色">
                         <el-option label="管理员" value="admin"></el-option>
                         <el-option label="普通用户" value="user"></el-option>
-                        <el-option label="访客" value="guest"></el-option>
                     </el-select>
                 </el-form-item>
             </el-form>
             <template #footer>
                 <span class="dialog-footer">
-                    <el-button @click="handleCloseDialog">取消</el-button>
-                    <el-button type="primary" @click="handleSaveUser">确定</el-button>
+                    <el-button @click="handleCloseDialog" :disabled="loading">取消</el-button>
+                    <el-button type="primary" @click="handleSaveUser" :loading="loading">
+                        {{ loading ? '保存中...' : '确定' }}
+                    </el-button>
                 </span>
             </template>
         </el-dialog>
@@ -77,7 +78,7 @@
 import { computed, nextTick, reactive, ref, onMounted } from 'vue';
 import { Search, Plus, Edit, Delete } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
-import { getUserList, type User as ApiUser } from '../../api/user';
+import { getUserList, addUser, deleteUser, type User as ApiUser, type CreateUserRequest } from '../../api/user';
 
 // 扩展API用户类型，添加表单需要的字段
 interface User extends ApiUser {
@@ -106,20 +107,35 @@ const fetchUsers = async () => {
 const userFormRules = reactive<FormRules>({
     username: [
         { required: true, message: '请输入用户名', trigger: 'blur' },
-        { min: 3, max: 15, message: '长度在3到15个字符', trigger: 'blur' },
+        { min: 3, max: 15, message: '用户名长度在3到15个字符', trigger: 'blur' },
+        { 
+            pattern: /^[a-zA-Z0-9_\u4e00-\u9fa5]+$/, 
+            message: '用户名只能包含字母、数字、下划线和中文', 
+            trigger: 'blur' 
+        },
     ],
     email: [
         { required: true, message: '请输入邮箱地址', trigger: 'blur' },
-        { type: 'email', message: '邮箱格式错误', trigger: ['blur', 'change'] },
+        { type: 'email', message: '请输入正确的邮箱格式', trigger: ['blur', 'change'] },
     ],
     password: [
         { required: true, message: '请输入密码', trigger: 'blur' },
-        { min: 6, message: '密码长度不能少于6位', trigger: 'blur' },
+        { min: 6, max: 20, message: '密码长度在6到20位之间', trigger: 'blur' },
+        { 
+            pattern: /^(?=.*[a-zA-Z])(?=.*\d)[a-zA-Z\d@$!%*?&]*$/, 
+            message: '密码必须包含至少一个字母和一个数字', 
+            trigger: 'blur' 
+        },
     ],
     newPassword: [
-        { min: 6, message: '密码长度不能少于6位', trigger: 'blur' },
+        { min: 6, max: 20, message: '新密码长度在6到20位之间', trigger: 'blur' },
+        { 
+            pattern: /^(?=.*[a-zA-Z])(?=.*\d)[a-zA-Z\d@$!%*?&]*$/, 
+            message: '密码必须包含至少一个字母和一个数字', 
+            trigger: 'blur' 
+        },
     ],
-    role: [{ required: true, message: '请选择角色', trigger: 'change' }]
+    role: [{ required: true, message: '请选择用户角色', trigger: 'change' }]
 });
 
 const pageSizes = [5, 10, 20, 50];
@@ -226,20 +242,59 @@ const handleDeleteUser = (userId: string) => {
         cancelButtonText: '取消',
         type: 'warning',
     }).then(async () => {
-        // TODO: 调用删除用户接口
         loading.value = true;
         try {
-            // const response = await deleteUserApi(userId);
-            // 临时逻辑：直接从本地数组删除
-            allUsers.value = allUsers.value.filter(user => user.id !== userId);
+            console.log('删除用户ID:', userId);
+            // 调用删除用户接口
+            await deleteUser(userId);
+            console.log('用户删除成功');
+            
             ElMessage.success('用户删除成功');
             
-            // 如果删除后当前页为空，且不是第一页，则跳到上一页
-            if (paginatedUsers.value.length === 0 && currentPage.value > 1) {
-                currentPage.value--;
+            // 重新获取用户列表，确保数据同步
+            try {
+                await fetchUsers();
+                console.log('刷新用户列表成功');
+                
+                // 如果删除后当前页为空，且不是第一页，则跳到上一页
+                if (paginatedUsers.value.length === 0 && currentPage.value > 1) {
+                    currentPage.value--;
+                }
+            } catch (refreshError) {
+                console.error('刷新用户列表失败:', refreshError);
+                // 如果刷新失败，手动从本地数组删除（备选方案）
+                allUsers.value = allUsers.value.filter(user => user.id !== userId);
+                
+                // 如果删除后当前页为空，且不是第一页，则跳到上一页
+                if (paginatedUsers.value.length === 0 && currentPage.value > 1) {
+                    currentPage.value--;
+                }
             }
-        } catch (error) {
-            ElMessage.error('删除用户失败');
+        } catch (error: any) {
+            console.error('删除用户失败:', error);
+            console.error('错误响应:', error.response);
+            
+            // 根据错误类型显示不同的错误信息
+            if (error.response) {
+                const status = error.response.status;
+                const message = error.response.data?.message || error.response.data?.error || '';
+                
+                if (status === 404) {
+                    ElMessage.error('用户不存在或已被删除');
+                } else if (status === 403) {
+                    ElMessage.error('权限不足，无法删除此用户');
+                } else if (status === 409) {
+                    ElMessage.error(`无法删除用户: ${message}`);
+                } else if (status === 500) {
+                    ElMessage.error(`服务器错误: ${message}`);
+                } else {
+                    ElMessage.error(`删除失败 (${status}): ${message}`);
+                }
+            } else if (error.request) {
+                ElMessage.error('网络连接失败，请检查网络或后端服务');
+            } else {
+                ElMessage.error(`删除请求配置错误: ${error.message}`);
+            }
         } finally {
             loading.value = false;
         }
@@ -271,25 +326,68 @@ const handleSaveUser = async () => {
                         ElMessage.success('用户更新成功');
                     }
                 } else { 
-                    // TODO: 调用创建用户接口
-                    // const response = await createUserApi(userForm);
-                    
-                    // 临时逻辑：添加到本地数组
-                    const newUser: User = {
-                        id: Date.now().toString(), // 生成临时ID
+                    // 调用创建用户接口
+                    const newUserData: CreateUserRequest = {
                         username: userForm.username!,
                         email: userForm.email!,
-                        role: userForm.role!,
+                        role: userForm.role! as 'admin' | 'user',
                         password: userForm.password!,
-                        createdAt: new Date().toISOString(),
                     };
-                    allUsers.value.unshift(newUser);
-                    ElMessage.success('用户添加成功');
+                    
+                    try {
+                        console.log('发送用户数据:', newUserData);
+                        const createdUser = await addUser(newUserData);
+                        console.log('创建用户成功:', createdUser);
+                        console.log('当前用户列表长度:', allUsers.value.length);
+                        
+                        ElMessage.success('用户添加成功');
+                        dialogVisible.value = false;
+                        
+                        // 重新获取用户列表，确保数据同步
+                        try {
+                            await fetchUsers();
+                            console.log('刷新后用户列表长度:', allUsers.value.length);
+                            // 重置分页到第一页以显示新添加的用户
+                            currentPage.value = 1;
+                        } catch (refreshError) {
+                            console.error('刷新用户列表失败:', refreshError);
+                            // 如果刷新失败，手动添加到列表（备选方案）
+                            allUsers.value.unshift(createdUser);
+                            currentPage.value = 1;
+                        }
+                    } catch (error: any) {
+                        console.error('添加用户失败:', error);
+                        console.error('错误响应:', error.response);
+                        console.error('错误请求:', error.request);
+                        
+                        // 根据错误类型显示不同的错误信息
+                        if (error.response) {
+                            const status = error.response.status;
+                            const message = error.response.data?.message || error.response.data?.error || '';
+                            
+                            if (status === 409) {
+                                ElMessage.error(`用户名或邮箱已存在: ${message}`);
+                            } else if (status === 400) {
+                                ElMessage.error(`输入数据不合法: ${message}`);
+                            } else if (status === 500) {
+                                ElMessage.error(`服务器错误: ${message}`);
+                            } else {
+                                ElMessage.error(`请求失败 (${status}): ${message}`);
+                            }
+                        } else if (error.request) {
+                            ElMessage.error('网络连接失败，请检查网络或后端服务');
+                        } else {
+                            ElMessage.error(`请求配置错误: ${error.message}`);
+                        }
+                        return; // 出错时不关闭对话框
+                    }
                 }
-                
-                dialogVisible.value = false;
             } catch (error) {
-                ElMessage.error(userForm.id ? '用户更新失败' : '用户添加失败');
+                console.error('保存用户失败:', error);
+                if (userForm.id) {
+                    ElMessage.error('用户更新失败');
+                }
+                // 注意：新增用户的错误处理已在上面的 addUser 调用中处理
             } finally {
                 loading.value = false;
             }

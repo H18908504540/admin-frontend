@@ -49,3 +49,34 @@ export const getUserList = async (): Promise<User[]> => {
     // 转换后端数据格式为前端格式
     return response.data.data.map(transformUser);
 };
+
+// 创建用户的请求数据类型
+export interface CreateUserRequest {
+    username: string;
+    email: string;
+    role: 'admin' | 'user';
+    password: string;
+}
+
+// 添加用户
+export const addUser = async (user: CreateUserRequest): Promise<User> => {
+    const response = await http.post('/users', user);
+    
+    // 处理不同的响应格式
+    let userData;
+    if (response.data) {
+        // 响应格式: { data: BackendUser }
+        userData = response.data;
+    } else {
+        // 响应格式: BackendUser
+        userData = response;
+    }
+    
+    // 转换后端数据格式为前端格式
+    return transformUser(userData);
+};
+
+// 删除用户
+export const deleteUser = async (userId: string): Promise<void> => {
+    await http.delete(`/users/${userId}`);
+};
