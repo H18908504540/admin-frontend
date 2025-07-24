@@ -3,11 +3,11 @@ import type { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError, Inte
 import { ElMessage, ElLoading } from 'element-plus';
 
 // 响应数据格式接口
-interface ApiResponse<T = any> {
-    code: number;
-    message: string;
-    data: T;
-}
+// interface ApiResponse<T = any> {
+//     code: number;
+//     message: string;
+//     data: T;
+// }
 
 // 请求配置扩展接口
 interface CustomRequestConfig extends AxiosRequestConfig {

@@ -1,4 +1,4 @@
-import request, { http } from '../utils/request';
+import { http } from '../utils/request';
 
 // 后端用户数据格式
 interface BackendUser {

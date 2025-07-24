@@ -4,6 +4,7 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [vue()],
+  base: '/admin-frontend/',
   css: {
     preprocessorOptions: {
       less: {
