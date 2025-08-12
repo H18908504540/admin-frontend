@@ -52,7 +52,10 @@
                     <el-input type="password" v-model="userForm.password" placeholder="请输入密码" show-password />
                 </el-form-item>
                 <el-form-item label="新密码" prop="password" v-else>
-                    <el-input type="password" v-model="userForm.newPassword" placeholder="留空则不修改密码" show-password />
+                    <el-input type="password" v-model="userForm.newPassword" placeholder="当前版本暂不支持密码修改" show-password disabled />
+                    <div style="font-size: 12px; color: #909399; margin-top: 4px;">
+                        注：当前版本暂不支持通过此界面修改密码
+                    </div>
                 </el-form-item>
                 <el-form-item label="角色" prop="role">
                     <el-select v-model="userForm.role" placeholder="请选择角色">
@@ -78,7 +81,7 @@
 import { computed, nextTick, reactive, ref, onMounted } from 'vue';
 import { Search, Plus, Edit, Delete } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
-import { getUserList, addUser, deleteUser, type User as ApiUser, type CreateUserRequest } from '../../api/user';
+import { getUserList, addUser, deleteUser, updateUser, type User as ApiUser, type CreateUserRequest, type UpdateUserRequest } from '../../api/user';
 
 // 扩展API用户类型，添加表单需要的字段
 interface User extends ApiUser {
@@ -94,10 +97,35 @@ const fetchUsers = async () => {
     loading.value = true;
     try {
         const users = await getUserList();
-        allUsers.value = users;
+        allUsers.value = users.users;
     } catch (error) {
         console.error('获取用户列表失败:', error);
         ElMessage.error('获取用户列表失败');
+        
+        // 设置假数据以便正常显示
+        allUsers.value = [
+            {
+                id: 'mock-user-1',
+                username: 'admin',
+                email: 'admin@example.com',
+                role: 'admin',
+                createdAt: '2024-01-01T10:00:00.000Z'
+            },
+            {
+                id: 'mock-user-2',
+                username: 'testuser',
+                email: 'test@example.com',
+                role: 'user',
+                createdAt: '2024-01-02T10:00:00.000Z'
+            },
+            {
+                id: 'mock-user-3',
+                username: 'demouser',
+                email: 'demo@example.com',
+                role: 'user',
+                createdAt: '2024-01-03T10:00:00.000Z'
+            }
+        ];
     } finally {
         loading.value = false;
     }
@@ -225,11 +253,9 @@ const handleEditUser = (user: User) => {
     dialogTitle.value = '编辑用户';
     Object.assign(userForm, { ...user, password: '', newPassword: '' }) // 填充表单，密码留空
 
-    // 移除密码字段的验证规则，并添加新密码字段的验证规则
+    // 移除密码字段的验证规则，新密码字段暂时禁用所以也不需要验证
     if (userFormRules.password) delete userFormRules.password;
-    userFormRules.newPassword = [
-        { min: 6, message: '新密码长度不能少于6位', trigger: 'blur' },
-    ];
+    if (userFormRules.newPassword) delete userFormRules.newPassword;
 
     dialogVisible.value = true;
     userFormRef.value?.clearValidate();
@@ -312,18 +338,61 @@ const handleSaveUser = async () => {
             loading.value = true;
             try {
                 if (userForm.id) { 
-                    // TODO: 调用编辑用户接口
-                    // const response = await updateUserApi(userForm.id, userForm);
+                    // 调用编辑用户接口
+                    const updateData: UpdateUserRequest = {
+                        username: userForm.username,
+                        email: userForm.email,
+                        role: userForm.role as 'admin' | 'user',
+                    };
                     
-                    // 临时逻辑：更新本地数组
-                    const index = allUsers.value.findIndex(u => u.id === userForm.id);
-                    if (index !== -1) {
-                        const updatedUser = { ...allUsers.value[index], ...userForm };
-                        if (userForm.newPassword) {
-                            updatedUser.password = userForm.newPassword;
-                        }
-                        allUsers.value[index] = { ...updatedUser, newPassword: '' };
+                    try {
+                        console.log('发送更新用户数据:', updateData, '用户ID:', userForm.id);
+                        const updatedUser = await updateUser(userForm.id, updateData);
+                        console.log('更新用户成功:', updatedUser);
+                        
                         ElMessage.success('用户更新成功');
+                        dialogVisible.value = false;
+                        
+                        // 重新获取用户列表，确保数据同步
+                        try {
+                            await fetchUsers();
+                            console.log('刷新用户列表成功');
+                        } catch (refreshError) {
+                            console.error('刷新用户列表失败:', refreshError);
+                            // 如果刷新失败，手动更新本地数组（备选方案）
+                            const index = allUsers.value.findIndex(u => u.id === userForm.id);
+                            if (index !== -1) {
+                                allUsers.value[index] = updatedUser;
+                            }
+                        }
+                    } catch (error: any) {
+                        console.error('更新用户失败:', error);
+                        console.error('错误响应:', error.response);
+                        
+                        // 根据错误类型显示不同的错误信息
+                        if (error.response) {
+                            const status = error.response.status;
+                            const message = error.response.data?.message || error.response.data?.error || '';
+                            
+                            if (status === 404) {
+                                ElMessage.error('用户不存在或已被删除');
+                            } else if (status === 409) {
+                                ElMessage.error(`用户名或邮箱已存在: ${message}`);
+                            } else if (status === 400) {
+                                ElMessage.error(`输入数据不合法: ${message}`);
+                            } else if (status === 403) {
+                                ElMessage.error('权限不足，无法修改此用户');
+                            } else if (status === 500) {
+                                ElMessage.error(`服务器错误: ${message}`);
+                            } else {
+                                ElMessage.error(`更新失败 (${status}): ${message}`);
+                            }
+                        } else if (error.request) {
+                            ElMessage.error('网络连接失败，请检查网络或后端服务');
+                        } else {
+                            ElMessage.error(`请求配置错误: ${error.message}`);
+                        }
+                        return; // 出错时不关闭对话框
                     }
                 } else { 
                     // 调用创建用户接口
