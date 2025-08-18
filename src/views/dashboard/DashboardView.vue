@@ -81,6 +81,23 @@
         </el-card>
       </el-col>
     </el-row>
+
+    <!-- Three.js 3D 演示 -->
+    <el-row :gutter="20" class="charts-row">
+      <el-col :span="24">
+        <el-card class="chart-card">
+          <template #header>
+            <div class="card-header">
+              <span>3D 可视化演示</span>
+              <el-tag type="info">Three.js</el-tag>
+            </div>
+          </template>
+          <div class="three-demo-container">
+            <ThreeDemo />
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
   </div>
 </template>
 
@@ -88,6 +105,7 @@
 import { onMounted, nextTick, ref, onUnmounted } from 'vue';
 import { ChartManager, ThemeWatcher } from '../../utils/chartUtils';
 import { getStatsData } from '../../utils/chartConfig';
+import ThreeDemo from './three/ThreeDemo.vue';
 
 // 统计数据
 const statsData = ref(getStatsData());
@@ -271,6 +289,14 @@ onUnmounted(() => {
         &.large-chart {
           height: 400px;
         }
+      }
+
+      .three-demo-container {
+        width: 100%;
+        min-height: 500px;
+        padding: 16px;
+        background: var(--el-bg-color-page);
+        border-radius: 8px;
       }
     }
   }
